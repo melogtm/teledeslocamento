@@ -1,56 +1,68 @@
-import os
-from functions.insert import novoRegistro
+import os 
+import logging
+from os.path import join, dirname 
 from dotenv import load_dotenv
-from telebot import TeleBot, types
+from telegram.constants import ParseMode
+from telegram.ext import ApplicationBuilder, Updater, CommandHandler, MessageHandler, filters, ContextTypes
+from functions.insert import novoRegistro
 
-# Carregando as variáveis de ambiente e armazenando o TOKEN para a classe TeleBot 
-load_dotenv() 
+# Carregar variáveis de ambiente
+dotenv_path = join(dirname(__file__), '.env')
+load_dotenv(dotenv_path)
+TOKEN = os.environ.get("TADI_TOKEN") 
 
-TADI_TOKEN = os.getenv('TADI_TOKEN')
+# Configurando o Logging
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-bot = TeleBot(TADI_TOKEN) 
+# Primeira Interação com o Bot
+async def start(update: Updater, context: ContextTypes.DEFAULT_TYPE): 
+    nome = update.message.from_user.first_name
+    await update.message.reply_text(f"Olá, eu sou o Xantadi! Como posso te ajudar, {nome}?")
 
-"""
-Função de tratamento dos dados e registro. Não consegui dividir as 2 em uma - ele exigirá que os dados sejam enviados 2 vezes. 
+# Ajuda
+async def help(update: Updater, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Para realizar um novo registro, informe, nesta sequência: \n> *Tempo de Deslocamento em Minutos* \n> *Meio de Transporte - 0: Carro, 1: Metrô-Ônibus, 2: Bicicleta, 3: A pé* \n> *Dia da Semana - 0: Segunda, 1: Terça, 2: Quarta, 3: Quinta, 4: Sexta* \n> *Intensidade da Chuva: 0 - Sem Chuva, 1 - Chuva Fraca, 2 - Chuva Moderada, 3 - Chuva Forte* \n> *Horário de Saída (HH:mm)* \n> *Véspera de Feriado*: 0 - Não, 1 - Sim", parse_mode=ParseMode.MARKDOWN)
 
-Provavelmente teria que procurar na documentação se há um outro método de recebimento de dados e chamar outra função.    
-"""
-def tratarRegistro(message: types.Message) -> None: 
-    dataRegistro = message.text.split(' ') # Transforma mensagem em uma lista, melhor de se trabalhar
+# Registro
+async def registro(update: Updater, context: ContextTypes.DEFAULT_TYPE): 
+    dados_informados = context.args
+    
+    if (len(dados_informados) < 6): 
+        await update.message.reply_text("Dados insuficientes para realizar esse novo registro. Por favor, tente novamento com o comando /registro.")
+        return 
+    
+    resultado = novoRegistro(dados_informados)
 
-    # Acho que com os 6 argumentos inicias já basta
-    if (len(dataRegistro) < 6): 
-        bot.reply_to(message, "Dados insuficientes para realizar esse novo registro. Por favor, tente novamento com o comando /deslocamento.")
-    else: 
-        bot.reply_to(message, "Tudo bem! Cuidarei do seu registro...")
-        
-        resultado = novoRegistro(dataRegistro) 
+    if resultado:
+        await update.message.reply_text("Registro realizado *com sucesso!*", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    await update.message.reply_text("Algo de errado não está certo. Tente novamente *checando os valores*", parse_mode=ParseMode.MARKDOWN)
 
-        if (resultado): 
-            bot.send_message(message.chat.id, 'Registro realizado *com sucesso!*', parse_mode='Markdown')
-        else: 
-            bot.send_message(message.chat.id, 'Algo deu *muito errado* :(.', parse_mode='Markdown')
-
-# Checar se o bot está ligado
-@bot.message_handler(commands=['check'])
-def send_greetings(message: types.Message): 
-    bot.reply_to(message, "Sim, estou ativo, pode realizar um registro.") 
-
-# Comando para iniciar o processo de registro
-@bot.message_handler(commands=["deslocamento"])
-def register_handler(message: types.Message): 
-    question = "Tudo bem! Vamos realizar o registro de um novo. Para isso, informe, nesta sequência: \n> *Tempo de Deslocamento em Minutos* \n> *Meio de Transporte - 0: Carro, 1: Metrô-Ônibus, 2: Bicicleta, 3: A pé* \n> *Dia da Semana - 0: Segunda, 1: Terça, 2: Quarta, 3: Quinta, 4: Sexta* \n> *Intensidade da Chuva: 0 - Sem Chuva, 1 - Chuva Fraca, 2 - Chuva Moderada, 3 - Chuva Forte* \n> *Horário de Saída (HH:mm) \n> Véspera de Feriado: 0 - Não, 1 - Sim*"
-
-    sent_dadosDeslocamento = bot.send_message(message.chat.id, question, parse_mode='markdown') 
-
-    bot.register_next_step_handler(sent_dadosDeslocamento, tratarRegistro)
 
 # Comando para receber o banco dados
-@bot.message_handler(commands=["receber"]) 
-def receber_handler(message: types.Message): 
-    with open(os.getcwd() + "/data/deslocamentos.csv", "r", encoding='utf-8') as d: 
-        bot.send_document(message.chat.id, d)
+async def receber(update: Updater, context: ContextTypes.DEFAULT_TYPE): 
+    
+    path_to_document = join(dirname(__file__), 'data/deslocamentos.csv')
 
-# Deixar o Bot em Loop 
+    with open(path_to_document, mode='r', encoding='utf-8') as d:   
+        await update.message.reply_document(d, quote=True) 
 
-bot.infinity_polling() 
+# Comando não existe
+async def unknown(update: Updater, context: ContextTypes.DEFAULT_TYPE): 
+    await update.message.reply_text("Esse comando não existe.") 
+
+
+if __name__ == "__main__": 
+    bot = ApplicationBuilder().token(TOKEN).build()
+
+    # Adicionar comandos
+    bot.add_handler(CommandHandler("start", start))
+    bot.add_handler(CommandHandler("help", help))
+    bot.add_handler(CommandHandler("registro", registro))
+    bot.add_handler(CommandHandler("receber", receber))
+    
+    # Resposta caso o usuário envie um comando não esperado
+    bot.add_handler(MessageHandler(filters.COMMAND, unknown))
+
+    bot.run_polling()
