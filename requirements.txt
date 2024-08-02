@@ -21,7 +21,6 @@ jedi==0.19.1
 Jinja2==3.1.3
 jsonschema==4.21.1
 jsonschema-specifications==2023.12.1
-ju'r_client==8.6.1
 jupyter_core==5.7.2
 jupyterlab_pygments==0.3.0
 MarkupSafe==2.1.5
